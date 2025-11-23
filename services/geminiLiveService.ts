@@ -118,15 +118,11 @@ export class GeminiLiveClient {
     const currentSampleRate = this.inputAudioContext.sampleRate;
 
     this.processor.onaudioprocess = (e) => {
-      if (!this.isConnected) return;
-      
       const inputData = e.inputBuffer.getChannelData(0);
       const pcmBlob = this.createBlob(inputData, currentSampleRate);
 
       sessionPromise.then((session) => {
-        if (this.isConnected) {
-             session.sendRealtimeInput({ media: pcmBlob });
-        }
+        session.sendRealtimeInput({ media: pcmBlob });
       }).catch(err => {
           // Avoid logging if we already know we are disconnected
           if (this.isConnected) {
