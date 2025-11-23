@@ -1,0 +1,7 @@
+{
+  "name": "Hotel Training Simulator",
+  "description": "A call center training application where the AI acts as a hotel customer and the user acts as the reservation agent.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
