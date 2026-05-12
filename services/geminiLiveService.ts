@@ -25,6 +25,7 @@ export class GeminiLiveClient {
   private nextStartTime = 0;
   private sources = new Set<AudioBufferSourceNode>();
   private isConnected = false;
+  private isMuted = false;
   private callbacks: LiveClientCallbacks;
   
   // Transcript accumulation
@@ -32,23 +33,53 @@ export class GeminiLiveClient {
   private currentUserText = "";
 
   constructor(callbacks: LiveClientCallbacks) {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    let apiKey = process.env.GEMINI_API_KEY;
+    // Handle cases where Vite might have stringified "undefined"
+    if (!apiKey || apiKey === "undefined" || apiKey === "null") {
+      apiKey = "";
+      console.error("GEMINI_API_KEY is missing or invalid in environment variables.");
+    } else {
+      console.log("GeminiLiveClient: API Key found (starts with " + apiKey.substring(0, 4) + ")");
+    }
+    this.ai = new GoogleGenAI({ apiKey });
     this.callbacks = callbacks;
+  }
+
+  public setMuted(muted: boolean) {
+    this.isMuted = muted;
+  }
+
+  public async sendInitialPrompt(message: string) {
+    if (!this.session) {
+      console.warn("No active session to send initial prompt");
+      return;
+    }
+    try {
+      const session = await this.session;
+      console.log("Sending initial prompt:", message);
+      session.sendRealtimeInput({ text: message });
+    } catch (err) {
+      console.error("Failed to send initial prompt", err);
+    }
   }
 
   public async connect(configOpts?: ConnectConfig) {
     if (this.isConnected) return;
 
     try {
+      console.log("Connecting to Gemini Live API...");
       // Initialize Audio Contexts
       // Try to request 16kHz, but accept whatever the browser gives us
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("Mic stream acquired");
 
       const config = {
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        // gemini-2.0-flash-exp is the current stable experimental model for Live.
+        // gemini-3.1-flash-live-preview might be restricted or pending roll-out.
+        model: 'gemini-2.0-flash-exp',
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: configOpts?.systemInstruction || SYSTEM_INSTRUCTION,
@@ -64,23 +95,27 @@ export class GeminiLiveClient {
         ...config,
         callbacks: {
           onopen: () => {
+            console.log("Gemini Live connection opened");
             this.isConnected = true;
             this.currentModelText = "";
             this.currentUserText = "";
             this.callbacks.onOpen();
             this.startAudioInput(sessionPromise);
           },
-          onmessage: (msg: LiveServerMessage) => this.handleMessage(msg),
+          onmessage: (msg: LiveServerMessage) => {
+            // console.log("Live Message received", msg);
+            this.handleMessage(msg);
+          },
           onclose: () => {
+            console.log("Gemini Live connection closed");
             this.isConnected = false;
             this.cleanup();
             this.callbacks.onClose();
           },
           onerror: (err: any) => {
-            console.error("Gemini Live API Error:", err);
-            if (this.isConnected) {
-                this.callbacks.onError(new Error(err.message || "Network error or connection lost"));
-            }
+            console.error("Gemini Live API websocket error:", err);
+            const errorMsg = err.message || (typeof err === 'string' ? err : JSON.stringify(err)) || "Network error or connection lost";
+            this.callbacks.onError(new Error(errorMsg));
             this.disconnect();
           }
         }
@@ -89,7 +124,7 @@ export class GeminiLiveClient {
       this.session = sessionPromise;
 
     } catch (error) {
-      console.error("Connection failed", error);
+      console.error("Connection setup failed", error);
       this.callbacks.onError(error as Error);
     }
   }
@@ -118,11 +153,13 @@ export class GeminiLiveClient {
     const currentSampleRate = this.inputAudioContext.sampleRate;
 
     this.processor.onaudioprocess = (e) => {
+      if (this.isMuted) return;
+      
       const inputData = e.inputBuffer.getChannelData(0);
       const pcmBlob = this.createBlob(inputData, currentSampleRate);
 
       sessionPromise.then((session) => {
-        session.sendRealtimeInput({ media: pcmBlob });
+        session.sendRealtimeInput({ audio: pcmBlob });
       }).catch(err => {
           // Avoid logging if we already know we are disconnected
           if (this.isConnected) {
@@ -262,7 +299,8 @@ export class GeminiLiveClient {
     sampleRate: number,
     numChannels: number,
   ): Promise<AudioBuffer> {
-    const dataInt16 = new Int16Array(data.buffer);
+    // Correctly handle buffer offset/length for Int16Array
+    const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
     const frameCount = dataInt16.length / numChannels;
     const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 

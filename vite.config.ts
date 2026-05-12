@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     define: {
       // Stringify the API key to inject it into the build
-      'process.env.API_KEY': JSON.stringify(env.API_KEY),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       // Mock process.env to prevent crashes in browser environment
       'process.env': JSON.stringify({}) 
     }

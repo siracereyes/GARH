@@ -17,12 +17,33 @@ const App: React.FC = () => {
   
   // Call State
   const [isCallActive, setIsCallActive] = useState(false);
+  const [isRinging, setIsRinging] = useState(false);
   const [isCustomerSpeaking, setIsCustomerSpeaking] = useState(false);
   const [callError, setCallError] = useState('');
   const [isTagalog, setIsTagalog] = useState(false);
   const [isIrate, setIsIrate] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [hasBookedInSession, setHasBookedInSession] = useState(false);
   const [evaluation, setEvaluation] = useState<CallEvaluation | null>(null);
+
+  // Audio for Ringtone
+  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (isRinging) {
+      ringtoneRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3');
+      ringtoneRef.current.loop = true;
+      ringtoneRef.current.play().catch(e => console.warn("Ringtone blocked by browser autoplay policy", e));
+    } else {
+      if (ringtoneRef.current) {
+        ringtoneRef.current.pause();
+        ringtoneRef.current = null;
+      }
+    }
+    return () => {
+      ringtoneRef.current?.pause();
+    };
+  }, [isRinging]);
 
   // Booking State (Lifted)
   const [bookingDraft, setBookingDraft] = useState<BookingDraft>({
@@ -55,10 +76,10 @@ const App: React.FC = () => {
       const history = transcriptBuffer.current;
       
       // Instantiate fresh client for every request to ensure latest key/config usage
-      const suggestionAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const suggestionAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       const response = await suggestionAI.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         contents: `You are an expert Hotel Reservation Coach assisting a trainee agent.
         
         Current Conversation Transcript:
@@ -91,7 +112,7 @@ const App: React.FC = () => {
   // Post-Call Evaluation Logic
   const generateEvaluation = async () => {
     try {
-       const evalAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       const evalAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
        const transcript = transcriptBuffer.current;
        const bookingDataStr = JSON.stringify(bookingDraft);
 
@@ -122,7 +143,7 @@ const App: React.FC = () => {
        `;
 
        const response = await evalAI.models.generateContent({
-         model: 'gemini-2.5-flash',
+         model: 'gemini-3-flash-preview',
          contents: prompt,
          config: {
            responseMimeType: "application/json",
@@ -158,6 +179,8 @@ const App: React.FC = () => {
         transcriptBuffer.current = "";
         setHasBookedInSession(false);
         setEvaluation(null);
+        setIsMuted(false);
+        geminiClient.current?.setMuted(false);
         setAgentSuggestions(["Greetings! Thank you for calling Grand AceReyes Hotel. How may I assist you?"]);
       },
       onClose: () => {
@@ -219,8 +242,14 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const handleIncomingCall = () => {
+    setIsRinging(true);
+    // You could play a ringtone sound here if desired
+  };
+
   const handleStartCall = async () => {
     try {
+      setIsRinging(false);
       const randomVoice = VOICE_PRESETS[Math.floor(Math.random() * VOICE_PRESETS.length)];
       let finalInstruction = SYSTEM_INSTRUCTION;
       
@@ -238,10 +267,20 @@ const App: React.FC = () => {
         voiceName: randomVoice.name,
         systemInstruction: finalInstruction
       });
+
+      // The AI will now listen first without a forced "Hellow?" prompt.
+      // It will respond once it hears the agent's opening spiel.
+
     } catch (e) {
       console.error(e);
       setCallError("Failed to start call. Check API Key and Mic permissions.");
     }
+  };
+
+  const handleToggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    geminiClient.current?.setMuted(nextMuted);
   };
 
   const handleEndCall = () => {
@@ -441,14 +480,18 @@ const App: React.FC = () => {
       {/* Phone Interface (Absolute Positioned) */}
       <PhoneInterface 
         isActive={isCallActive}
+        isRinging={isRinging}
         isSpeaking={isCustomerSpeaking}
         onStartCall={handleStartCall}
+        onIncomingCall={handleIncomingCall}
         onEndCall={handleEndCall}
         statusMessage={callError}
         isTagalog={isTagalog}
         setIsTagalog={setIsTagalog}
         isIrate={isIrate}
         setIsIrate={setIsIrate}
+        isMuted={isMuted}
+        onToggleMute={handleToggleMute}
       />
     </div>
   );

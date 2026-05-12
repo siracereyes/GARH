@@ -1,27 +1,36 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Mic, MicOff, Phone, PhoneOff, Users, GripHorizontal } from 'lucide-react';
 
 interface PhoneInterfaceProps {
   isActive: boolean;
+  isRinging: boolean;
   isSpeaking: boolean;
   onStartCall: () => void;
+  onIncomingCall: () => void;
   onEndCall: () => void;
   statusMessage: string;
   isTagalog: boolean;
   setIsTagalog: (value: boolean) => void;
   isIrate: boolean;
   setIsIrate: (value: boolean) => void;
+  isMuted: boolean;
+  onToggleMute: () => void;
 }
 
 export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({ 
   isActive, 
+  isRinging,
   isSpeaking, 
   onStartCall, 
+  onIncomingCall,
   onEndCall,
   statusMessage,
   isTagalog,
   setIsTagalog,
   isIrate,
-  setIsIrate
+  setIsIrate,
+  isMuted,
+  onToggleMute
 }) => {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const isDragging = useRef(false);
@@ -89,9 +98,7 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 pointer-events-none">VoIP: HD</span>
           {/* Drag Handle Icon */}
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
-          </svg>
+          <GripHorizontal className="h-4 w-4 text-slate-500" />
         </div>
       </div>
 
@@ -108,14 +115,29 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
             </div>
             
             <div className="text-center">
-              <h3 className="text-white text-lg font-semibold">Incoming Call</h3>
+              <h3 className="text-white text-lg font-semibold">Active Session</h3>
               <p className="text-slate-400 text-sm mt-1">{isSpeaking ? "Customer is speaking..." : "Customer listening..."}</p>
             </div>
           </>
+        ) : isRinging ? (
+          <div className="text-center flex flex-col items-center">
+            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-white mb-4 recording-pulse shadow-lg shadow-green-500/20">
+              <Phone className="h-10 w-10 animate-bounce" />
+            </div>
+            <h3 className="text-white text-xl font-bold">Incoming Call</h3>
+            <p className="text-slate-400 text-sm animate-pulse">Ringing...</p>
+          </div>
         ) : (
           <div className="text-center text-slate-500 w-full">
             <p className="mb-2">Ready for training.</p>
-            <p className="text-xs mb-4">Configure scenario settings:</p>
+            <button 
+              onClick={onIncomingCall}
+              className="mb-4 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors text-xs font-semibold flex items-center gap-2 mx-auto"
+            >
+              <Phone className="h-3 w-3 text-green-500" />
+              Simulate Incoming Call
+            </button>
+            <p className="text-xs mb-4">Scenario settings:</p>
             
             {/* Config Toggles */}
             <div className="flex flex-col gap-3 px-4">
@@ -150,36 +172,46 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
 
       {/* Controls */}
       <div className="p-4 bg-slate-800 grid grid-cols-3 gap-4 items-center justify-items-center border-t border-slate-700">
-        <button className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 hover:bg-slate-600 transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-          </svg>
+        <button 
+          onClick={onToggleMute}
+          disabled={!isActive}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${!isActive ? 'opacity-50 cursor-not-allowed' : ''} ${isMuted ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+        >
+          {isMuted ? (
+            <MicOff className="h-6 w-6" />
+          ) : (
+            <Mic className="h-6 w-6" />
+          )}
         </button>
 
-        {!isActive ? (
-           <button 
+        {isRinging ? (
+          <button 
            onClick={onStartCall}
-           className="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg hover:bg-green-600 hover:scale-105 transition-all"
+           className="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg animate-bounce hover:bg-green-600 transition-all ring-4 ring-green-500/30"
+           title="Answer Call"
          >
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-           </svg>
+           <Phone className="h-8 w-8" fill="currentColor" />
+         </button>
+        ) : !isActive ? (
+           <button 
+           disabled
+           className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-500 cursor-not-allowed opacity-50"
+         >
+           <Phone className="h-8 w-8" fill="currentColor" />
          </button>
         ) : (
           <button 
             onClick={onEndCall}
             className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center text-white shadow-lg hover:bg-red-600 hover:scale-105 transition-all"
+            title="End Call"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.516l2.257-1.13a1 1 0 00.502-1.21l-1.498-4.493A1 1 0 005.372 3H5z" />
-            </svg>
+            <PhoneOff className="h-8 w-8" fill="currentColor" />
           </button>
         )}
 
         <button className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 hover:bg-slate-600 transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-          </svg>
+          <Users className="h-6 w-6" />
         </button>
       </div>
       
