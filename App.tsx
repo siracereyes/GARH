@@ -282,8 +282,12 @@ const App: React.FC = () => {
       });
 
       // The AI starts talking first (as the customer) to initiate a booking inquiry.
-      // We send a hidden prompt to trigger the AI's opening line as the customer.
-      geminiClient.current?.sendInitialPrompt("Gently start the conversation as the customer now. Ask about room availability or say hello to the receptionist.");
+      // We send a hidden prompt to trigger the AI's opening line as the customer in the selected language.
+      if (isTagalog) {
+        geminiClient.current?.sendInitialPrompt("Simulan ang pag-uusap bilang hotel customer sa Tagalog o Taglish ngayon. Bumati sa receptionist at magtanong tungkol sa bakanteng kuwarto.");
+      } else {
+        geminiClient.current?.sendInitialPrompt("Gently start the conversation as the customer now. Ask about room availability or say hello to the receptionist.");
+      }
 
     } catch (e) {
       console.error(e);

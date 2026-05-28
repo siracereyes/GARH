@@ -38,6 +38,18 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
   const isDragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showMicTip, setShowMicTip] = useState(false);
+
+  useEffect(() => {
+    if (isActive && !isMuted && (userVolume || 0) < 0.002) {
+      const timer = setTimeout(() => {
+        setShowMicTip(true);
+      }, 4000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowMicTip(false);
+    }
+  }, [isActive, isMuted, userVolume]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -122,14 +134,15 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
             </div>
 
             {/* Real-time Agent/User Mic Signal Meter */}
-            <div className="mt-4 flex flex-col items-center gap-1 w-full max-w-[200px]">
+            <div className="mt-4 flex flex-col items-center gap-2 w-full max-w-[220px]">
               <div className="flex items-center gap-1 h-5 justify-center w-full">
                 {[0.2, 0.45, 0.8, 0.5, 0.25].map((mul, idx) => {
                   const currentVol = userVolume || 0;
-                  // Map volume to height scale (rms is typically 0.0 to 0.20 for regular speech, so let's scale it)
+                  // Use a logarithmic-feel RMS boost scale so even low/average vocals bounce beautifully and responsively!
+                  const normVol = Math.min(1, Math.max(0, (Math.log10(currentVol + 1e-4) + 4.0) / 3.0)); // maps 0.0001..0.1 to 0..1
                   const height = isMuted 
                     ? 4 
-                    : Math.max(4, Math.min(20, currentVol * 250 * mul));
+                    : 4 + normVol * 16 * mul * 1.5;
                   
                   return (
                     <div 
@@ -138,23 +151,32 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
                       className={`w-1 rounded-full transition-all duration-75 ${
                         isMuted 
                           ? 'bg-slate-700' 
-                          : currentVol > 0.01 
+                          : currentVol > 0.002 
                             ? 'bg-green-400 shadow-sm shadow-green-400/30' 
-                            : 'bg-emerald-600/50'
+                            : 'bg-emerald-600/40'
                       }`}
                     />
                   );
                 })}
               </div>
-              <span className={`text-[9px] uppercase tracking-wider font-semibold ${
+              <span className={`text-[9.5px] uppercase tracking-wider font-semibold ${
                 isMuted 
                   ? 'text-red-400' 
-                  : (userVolume || 0) > 0.01 
+                  : (userVolume || 0) > 0.002 
                     ? 'text-green-400 animate-pulse' 
                     : 'text-slate-500'
               }`}>
-                {isMuted ? "Mic Muted" : (userVolume || 0) > 0.01 ? "Mic Capturing Audio" : "Mic Live"}
+                {isMuted ? "Mic Muted" : (userVolume || 0) > 0.002 ? "Mic Capturing Audio" : "Mic Live (Silence)"}
               </span>
+
+              {/* Responsive Diagnostic Tip */}
+              {showMicTip && (
+                <div className="mt-1 bg-slate-800/90 border border-slate-700/60 p-2 rounded-lg text-left shadow-inner text-amber-300">
+                  <p className="text-[10px] leading-relaxed">
+                    💡 <span className="underline font-semibold text-amber-400">Quiet or uncaptured mic?</span> Grant microphone permission to Chrome. If nested in an iframe, try clicking <strong>"Open App in New Tab ↗"</strong> in the top-right menu!
+                  </p>
+                </div>
+              )}
             </div>
           </>
         ) : isRinging ? (

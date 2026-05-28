@@ -18,6 +18,7 @@ interface ConnectConfig {
 export class GeminiLiveClient {
   private ai: GoogleGenAI;
   private session: any = null;
+  private resolvedLiveSession: any = null;
   private inputAudioContext: AudioContext | null = null;
   private outputAudioContext: AudioContext | null = null;
   private stream: MediaStream | null = null;
@@ -148,6 +149,15 @@ export class GeminiLiveClient {
       });
       
       this.session = sessionPromise;
+      
+      sessionPromise.then((resolvedSession) => {
+        console.log("Live session pre-resolved cleanly.");
+        this.resolvedLiveSession = resolvedSession;
+      }).catch(err => {
+        if (this.isConnected) {
+          console.error("Failed to pre-resolve Gemini Live session:", err);
+        }
+      });
 
     } catch (error) {
       console.error("Connection setup failed", error);
@@ -237,14 +247,24 @@ export class GeminiLiveClient {
       const resampledData = this.downsample(inputData, currentSampleRate, 16000);
       const pcmBlob = this.createBlob(resampledData, 16000);
 
-      sessionPromise.then((session) => {
-        session.sendRealtimeInput({ audio: pcmBlob });
-      }).catch(err => {
-          // Avoid logging if we already know we are disconnected
+      if (this.resolvedLiveSession) {
+        try {
+          this.resolvedLiveSession.sendRealtimeInput({ audio: pcmBlob });
+        } catch (sendErr) {
           if (this.isConnected) {
-            console.warn("Failed to send audio chunk", err);
+            console.warn("Failed sending audio chunk directly:", sendErr);
           }
-      });
+        }
+      } else {
+        sessionPromise.then((session) => {
+          this.resolvedLiveSession = session;
+          session.sendRealtimeInput({ audio: pcmBlob });
+        }).catch(err => {
+          if (this.isConnected) {
+            console.warn("Failed to send audio chunk via fallback promise:", err);
+          }
+        });
+      }
     };
 
     this.source.connect(this.processor);
@@ -393,6 +413,8 @@ export class GeminiLiveClient {
   }
 
   private cleanup() {
+    this.resolvedLiveSession = null;
+    this.session = null;
     if (this.callbacks.onUserVolume) {
       this.callbacks.onUserVolume(0);
     }
