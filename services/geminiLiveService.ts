@@ -7,6 +7,7 @@ interface LiveClientCallbacks {
   onError: (error: Error) => void;
   onAudioData: (isPlaying: boolean) => void;
   onTranscript: (speaker: 'user' | 'model', text: string, isFinal: boolean) => void;
+  onUserVolume?: (volume: number) => void;
 }
 
 interface ConnectConfig {
@@ -41,12 +42,24 @@ export class GeminiLiveClient {
     } else {
       console.log("GeminiLiveClient: API Key found (starts with " + apiKey.substring(0, 4) + ")");
     }
-    this.ai = new GoogleGenAI({ apiKey });
+    this.ai = new GoogleGenAI({ 
+      apiKey, 
+      apiVersion: 'v1beta',
+      httpOptions: {
+        apiVersion: 'v1beta',
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
     this.callbacks = callbacks;
   }
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
+    if (muted && this.callbacks.onUserVolume) {
+      this.callbacks.onUserVolume(0);
+    }
   }
 
   public async sendInitialPrompt(message: string) {
@@ -68,18 +81,26 @@ export class GeminiLiveClient {
 
     try {
       console.log("Connecting to Gemini Live API...");
-      // Initialize Audio Contexts
-      // Try to request 16kHz, but accept whatever the browser gives us
-      this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      // Initialize Audio Contexts natively inside the user gesture handler
+      this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      // Resume contexts immediately synchronously so the browser grants permissions
+      try {
+        await Promise.all([
+          this.inputAudioContext.resume(),
+          this.outputAudioContext.resume()
+        ]);
+        console.log("Acoustic Audio Contexts active and running.");
+      } catch (resumeErr) {
+        console.warn("Could not resume audio contexts synchronously:", resumeErr);
+      }
       
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log("Mic stream acquired");
 
       const config = {
-        // gemini-2.0-flash-exp is the current stable experimental model for Live.
-        // gemini-3.1-flash-live-preview might be restricted or pending roll-out.
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-3.1-flash-live-preview',
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: configOpts?.systemInstruction || SYSTEM_INSTRUCTION,
@@ -94,11 +115,16 @@ export class GeminiLiveClient {
       const sessionPromise = this.ai.live.connect({
         ...config,
         callbacks: {
-          onopen: () => {
+          onopen: async () => {
             console.log("Gemini Live connection opened");
             this.isConnected = true;
             this.currentModelText = "";
             this.currentUserText = "";
+            
+            // Backup resume
+            if (this.inputAudioContext?.state === 'suspended') await this.inputAudioContext.resume();
+            if (this.outputAudioContext?.state === 'suspended') await this.outputAudioContext.resume();
+            
             this.callbacks.onOpen();
             this.startAudioInput(sessionPromise);
           },
@@ -138,6 +164,34 @@ export class GeminiLiveClient {
     this.callbacks.onClose();
   }
 
+  private downsample(buffer: Float32Array, fromRate: number, toRate: number): Float32Array {
+    if (fromRate === toRate) {
+      return buffer;
+    }
+    if (fromRate < toRate) {
+      // Upsampling - not expected for mic but return as is
+      return buffer;
+    }
+    const sampleRateRatio = fromRate / toRate;
+    const newLength = Math.round(buffer.length / sampleRateRatio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+        accum += buffer[i];
+        count++;
+      }
+      result[offsetResult] = count > 0 ? accum / count : 0;
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+  }
+
   private startAudioInput(sessionPromise: Promise<any>) {
     if (!this.inputAudioContext || !this.stream) return;
 
@@ -151,12 +205,37 @@ export class GeminiLiveClient {
 
     // Capture actual sample rate to use in MIME type
     const currentSampleRate = this.inputAudioContext.sampleRate;
+    console.log(`Mic input sample rate set up. Browser Native Rate: ${currentSampleRate} Hz. Downsampling to 16000 Hz.`);
 
+    let chunkCount = 0;
     this.processor.onaudioprocess = (e) => {
-      if (this.isMuted) return;
+      if (this.isMuted) {
+        if (this.callbacks.onUserVolume) {
+          this.callbacks.onUserVolume(0);
+        }
+        return;
+      }
       
       const inputData = e.inputBuffer.getChannelData(0);
-      const pcmBlob = this.createBlob(inputData, currentSampleRate);
+      
+      // Calculate RMS to see if there's actual sound
+      let sum = 0;
+      for (let i = 0; i < inputData.length; i++) {
+        sum += inputData[i] * inputData[i];
+      }
+      const rms = Math.sqrt(sum / inputData.length);
+      if (chunkCount++ % 100 === 0) {
+        console.log("Audio Input RMS:", rms.toFixed(5));
+      }
+
+      // Notify UI of user's active volume
+      if (this.callbacks.onUserVolume) {
+        this.callbacks.onUserVolume(rms);
+      }
+
+      // Downsample to exactly 16000 Hz PCM for Gemini Live API
+      const resampledData = this.downsample(inputData, currentSampleRate, 16000);
+      const pcmBlob = this.createBlob(resampledData, 16000);
 
       sessionPromise.then((session) => {
         session.sendRealtimeInput({ audio: pcmBlob });
@@ -314,6 +393,9 @@ export class GeminiLiveClient {
   }
 
   private cleanup() {
+    if (this.callbacks.onUserVolume) {
+      this.callbacks.onUserVolume(0);
+    }
     if (this.processor && this.source) {
       this.source.disconnect();
       this.processor.disconnect();

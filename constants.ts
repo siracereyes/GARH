@@ -45,7 +45,8 @@ export const VOICE_PRESETS = [
   { name: 'Fenrir', gender: 'Male' },
   { name: 'Kore', gender: 'Female' },
   { name: 'Puck', gender: 'Male' },
-  { name: 'Aoede', gender: 'Female' }
+  { name: 'Charon', gender: 'Male' },
+  { name: 'Zephyr', gender: 'Female' }
 ];
 
 export const AGENT_SCRIPTS = {

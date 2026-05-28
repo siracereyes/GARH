@@ -5,6 +5,7 @@ interface PhoneInterfaceProps {
   isActive: boolean;
   isRinging: boolean;
   isSpeaking: boolean;
+  userVolume: number;
   onStartCall: () => void;
   onIncomingCall: () => void;
   onEndCall: () => void;
@@ -21,6 +22,7 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
   isActive, 
   isRinging,
   isSpeaking, 
+  userVolume,
   onStartCall, 
   onIncomingCall,
   onEndCall,
@@ -117,6 +119,42 @@ export const PhoneInterface: React.FC<PhoneInterfaceProps> = ({
             <div className="text-center">
               <h3 className="text-white text-lg font-semibold">Active Session</h3>
               <p className="text-slate-400 text-sm mt-1">{isSpeaking ? "Customer is speaking..." : "Customer listening..."}</p>
+            </div>
+
+            {/* Real-time Agent/User Mic Signal Meter */}
+            <div className="mt-4 flex flex-col items-center gap-1 w-full max-w-[200px]">
+              <div className="flex items-center gap-1 h-5 justify-center w-full">
+                {[0.2, 0.45, 0.8, 0.5, 0.25].map((mul, idx) => {
+                  const currentVol = userVolume || 0;
+                  // Map volume to height scale (rms is typically 0.0 to 0.20 for regular speech, so let's scale it)
+                  const height = isMuted 
+                    ? 4 
+                    : Math.max(4, Math.min(20, currentVol * 250 * mul));
+                  
+                  return (
+                    <div 
+                      key={idx} 
+                      style={{ height: `${height}px` }}
+                      className={`w-1 rounded-full transition-all duration-75 ${
+                        isMuted 
+                          ? 'bg-slate-700' 
+                          : currentVol > 0.01 
+                            ? 'bg-green-400 shadow-sm shadow-green-400/30' 
+                            : 'bg-emerald-600/50'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+              <span className={`text-[9px] uppercase tracking-wider font-semibold ${
+                isMuted 
+                  ? 'text-red-400' 
+                  : (userVolume || 0) > 0.01 
+                    ? 'text-green-400 animate-pulse' 
+                    : 'text-slate-500'
+              }`}>
+                {isMuted ? "Mic Muted" : (userVolume || 0) > 0.01 ? "Mic Capturing Audio" : "Mic Live"}
+              </span>
             </div>
           </>
         ) : isRinging ? (
